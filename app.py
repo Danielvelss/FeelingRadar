@@ -240,39 +240,48 @@ phase = get_phase()
 
 
 # =============================================================================
-# PROGRESS INDICATOR
+# PROGRESS INDICATOR (dynamic — updates during running phase)
 # =============================================================================
 
 steps_names = ["Cargar Archivo", "Sentimiento", "Ground Truth", "Topics", "Clustering"]
 step_icons = ["📂", "🧠", "✅", "🏷️", "🔗"]
 step_data_keys = [None, "df_paso_1", "df_paso_2", "df_paso_3", "df_paso_4"]
 
-cols = st.columns(len(steps_names))
-for i, (col, name, icon) in enumerate(zip(cols, steps_names, step_icons)):
-    if phase == "complete":
-        status = "done"
-    elif phase == "upload":
-        status = "active" if i == 0 else "pending"
-    elif phase == "ready":
-        status = "done" if i == 0 else "pending"
-    else:
-        if i == 0:
-            status = "done"
-        elif step_data_keys[i] and st.session_state.get(step_data_keys[i]) is not None:
-            status = "done"
-        elif i == 1 or (step_data_keys[i - 1] and st.session_state.get(step_data_keys[i - 1]) is not None):
-            status = "active"
-        else:
-            status = "pending"
+step_indicator_placeholder = st.empty()
 
-    if status == "done":
-        col.markdown(f"<div style='text-align:center;padding:0.5rem;background:#c6f6d5;border-radius:8px;color:#22543d;'><b>{icon} {name}</b><br><small>Completado</small></div>", unsafe_allow_html=True)
-    elif status == "active":
-        col.markdown(f"<div style='text-align:center;padding:0.5rem;background:#bee3f8;border-radius:8px;border:2px solid #3182ce;color:#2a4365;'><b>{icon} {name}</b><br><small>En proceso</small></div>", unsafe_allow_html=True)
-    else:
-        col.markdown(f"<div style='text-align:center;padding:0.5rem;background:#edf2f7;border-radius:8px;color:#4a5568;'><b>{icon} {name}</b><br><small style='color:#a0aec0;'>Pendiente</small></div>", unsafe_allow_html=True)
 
-st.markdown("<br>", unsafe_allow_html=True)
+def render_step_indicator(running_step=None):
+    with step_indicator_placeholder.container():
+        cols = st.columns(len(steps_names))
+        for i, (col, name, icon) in enumerate(zip(cols, steps_names, step_icons)):
+            if phase == "complete":
+                status = "done"
+            elif phase == "upload":
+                status = "active" if i == 0 else "pending"
+            elif phase == "ready":
+                status = "done" if i == 0 else "pending"
+            elif running_step is not None:
+                if i == 0:
+                    status = "done"
+                elif step_data_keys[i] and st.session_state.get(step_data_keys[i]) is not None:
+                    status = "done"
+                elif i == running_step:
+                    status = "active"
+                else:
+                    status = "pending"
+            else:
+                status = "pending"
+
+            if status == "done":
+                col.markdown(f"<div style='text-align:center;padding:0.5rem;background:#c6f6d5;border-radius:8px;color:#22543d;'><b>{icon} {name}</b><br><small>Completado</small></div>", unsafe_allow_html=True)
+            elif status == "active":
+                col.markdown(f"<div style='text-align:center;padding:0.5rem;background:#bee3f8;border-radius:8px;border:2px solid #3182ce;color:#2a4365;'><b>{icon} {name}</b><br><small>En proceso</small></div>", unsafe_allow_html=True)
+            else:
+                col.markdown(f"<div style='text-align:center;padding:0.5rem;background:#edf2f7;border-radius:8px;color:#4a5568;'><b>{icon} {name}</b><br><small style='color:#a0aec0;'>Pendiente</small></div>", unsafe_allow_html=True)
+        st.markdown("<br>", unsafe_allow_html=True)
+
+
+render_step_indicator()
 
 
 # =============================================================================
@@ -368,6 +377,7 @@ elif phase == "running":
     # STEP 1: Sentimiento
     # -----------------------------------------------------------------
     if not error_occurred:
+        render_step_indicator(running_step=1)
         overall.progress(0.0, text="Paso 1/4: Analisis de Sentimiento...")
 
         if st.session_state.df_paso_1 is None:
@@ -402,6 +412,7 @@ elif phase == "running":
     # STEP 2: Ground Truth
     # -----------------------------------------------------------------
     if not error_occurred:
+        render_step_indicator(running_step=2)
         overall.progress(0.25, text="Paso 2/4: Ground Truth...")
 
         if st.session_state.df_paso_2 is None:
@@ -433,6 +444,7 @@ elif phase == "running":
     # STEP 3: Topic Detection
     # -----------------------------------------------------------------
     if not error_occurred:
+        render_step_indicator(running_step=3)
         overall.progress(0.50, text="Paso 3/4: Topic Detection...")
 
         if st.session_state.df_paso_3 is None:
@@ -471,6 +483,7 @@ elif phase == "running":
     # STEP 4: Clustering + S3
     # -----------------------------------------------------------------
     if not error_occurred:
+        render_step_indicator(running_step=4)
         overall.progress(0.75, text="Paso 4/4: Clustering + S3...")
 
         if st.session_state.df_paso_4 is None:
@@ -559,9 +572,21 @@ elif phase == "complete":
         (f"{esc['crisis']}", "Crisis"),
     ])
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "Sentimiento", "Ground Truth", "Topics", "Clustering", "Descargas"
+    tab_dl, tab1, tab2, tab3, tab4 = st.tabs([
+        "Descargas", "Sentimiento", "Ground Truth", "Topics", "Clustering"
     ])
+
+    # ---- Tab: Descargas (default selected) ----
+    with tab_dl:
+        st.markdown("### Descargar resultado final")
+        st.markdown("Archivo consolidado con sentimiento, ground truth, topics y clustering.")
+        st.download_button(
+            "Descargar Resultado Final",
+            df_to_csv_bytes(st.session_state.df_paso_4),
+            "04_CONVERSATION_THREADS_CLUSTERED.csv",
+            "text/csv",
+            use_container_width=True,
+        )
 
     # ---- Tab 1: Sentimiento ----
     with tab1:
@@ -695,48 +720,3 @@ elif phase == "complete":
         with st.expander("Vista previa — Clustering", expanded=False):
             st.dataframe(df4.head(50), use_container_width=True, height=400)
 
-    # ---- Tab 5: Descargas ----
-    with tab5:
-        st.markdown("### Descargar resultados por paso")
-
-        col1, col2 = st.columns(2)
-        with col1:
-            st.download_button(
-                "Paso 1: Sentimiento",
-                df_to_csv_bytes(st.session_state.df_paso_1),
-                "01_MENCIONES_CON_SENTIMIENTO_V2.csv",
-                "text/csv",
-                use_container_width=True,
-            )
-            st.download_button(
-                "Paso 3: Topics",
-                df_to_csv_bytes(st.session_state.df_paso_3),
-                "03_MENCIONES_CON_TOPICS.csv",
-                "text/csv",
-                use_container_width=True,
-            )
-        with col2:
-            st.download_button(
-                "Paso 2: Ground Truth",
-                df_to_csv_bytes(st.session_state.df_paso_2),
-                "02_GROUND_TRUTH_CON_METRICAS.csv",
-                "text/csv",
-                use_container_width=True,
-            )
-            st.download_button(
-                "Paso 4: Clustering (Final)",
-                df_to_csv_bytes(st.session_state.df_paso_4),
-                "04_CONVERSATION_THREADS_CLUSTERED.csv",
-                "text/csv",
-                use_container_width=True,
-            )
-
-        st.markdown("---")
-        st.download_button(
-            "Descargar Resultado Final Completo",
-            df_to_csv_bytes(st.session_state.df_paso_4),
-            "04_CONVERSATION_THREADS_CLUSTERED.csv",
-            "text/csv",
-            use_container_width=True,
-            key="download_final",
-        )
