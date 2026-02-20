@@ -1,8 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-DDI Social Listening Pipeline - Streamlit App
-Basado en: Pipeline (2).ipynb
-"""
 
 import streamlit as st
 import pandas as pd
@@ -32,22 +28,28 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # =============================================================================
-# LOAD .env
+# LOAD CONFIG — st.secrets (Streamlit Cloud) with .env fallback (local)
 # =============================================================================
+
+def get_secret(key, default=""):
+    try:
+        return st.secrets[key]
+    except (KeyError, FileNotFoundError):
+        return os.getenv(key, default)
 
 env_path = Path(__file__).parent / ".env"
 load_dotenv(env_path)
 
-USE_LOCAL_MODEL = os.getenv("USE_LOCAL_MODEL", "false").lower() == "true"
-LOCAL_MODEL_PATH = os.getenv("LOCAL_MODEL_PATH", "")
-HF_TOKEN = os.getenv("HF_TOKEN", "")
-HF_MODEL_ID = os.getenv("HF_MODEL_ID", "ejerez003/robertuito-guatemala-v2.0")
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-S3_BUCKET = os.getenv("AWS_S3_BUCKET", "")
-S3_PREFIX = os.getenv("AWS_S3_PREFIX", "pipeline-output/")
-AWS_ACCESS_KEY = os.getenv("AWS_ACCESS_KEY_ID", "")
-AWS_SECRET_KEY = os.getenv("AWS_SECRET_ACCESS_KEY", "")
-AWS_REGION = os.getenv("AWS_REGION", "us-east-1")
+USE_LOCAL_MODEL = get_secret("USE_LOCAL_MODEL", "false").lower() == "true"
+LOCAL_MODEL_PATH = get_secret("LOCAL_MODEL_PATH", "")
+HF_TOKEN = get_secret("HF_TOKEN", "")
+HF_MODEL_ID = get_secret("HF_MODEL_ID", "ejerez003/robertuito-guatemala-v2.0")
+OPENAI_API_KEY = get_secret("OPENAI_API_KEY", "")
+S3_BUCKET = get_secret("AWS_S3_BUCKET", "")
+S3_PREFIX = get_secret("AWS_S3_PREFIX", "pipeline-output/")
+AWS_ACCESS_KEY = get_secret("AWS_ACCESS_KEY_ID", "")
+AWS_SECRET_KEY = get_secret("AWS_SECRET_ACCESS_KEY", "")
+AWS_REGION = get_secret("AWS_REGION", "us-east-1")
 
 # =============================================================================
 # PAGE CONFIG
