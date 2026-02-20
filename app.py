@@ -329,7 +329,6 @@ elif current == 1:
     render_metric_cards([
         (f"{len(df)}", "Menciones a procesar"),
         ("~3-5 seg/mención", "Tiempo estimado"),
-        ("$0", "Costo (modelo local/HF)"),
     ])
 
     if st.session_state.df_paso_1 is not None:
@@ -409,7 +408,6 @@ elif current == 2:
     render_metric_cards([
         (f"{len(df1)}", "Menciones a validar"),
         ("~45-60 min", "Tiempo estimado"),
-        (f"~${len(df1)*0.0005:.2f}", "Costo estimado (USD)"),
     ])
 
     if st.session_state.df_paso_2 is not None:
@@ -419,14 +417,6 @@ elif current == 2:
         metrics = st.session_state.metrics_paso_2
 
         if metrics and 'metrics' in metrics:
-            m = metrics['metrics']
-            render_metric_cards([
-                (f"{m.get('accuracy', 0)*100:.1f}%", "Accuracy"),
-                (f"{m.get('precision', 0):.3f}", "Precision"),
-                (f"{m.get('recall', 0):.3f}", "Recall"),
-                (f"{m.get('f1_score', 0):.3f}", "F1-Score"),
-            ])
-
             col1, col2 = st.columns(2)
             with col1:
                 if 'distribution' in metrics:
@@ -634,45 +624,13 @@ elif current == 4:
         show_preview(df4, "04_CONVERSATION_THREADS_CLUSTERED.csv", "paso4")
 
         st.markdown("---")
-        col_dl, col_s3 = st.columns(2)
-
-        with col_dl:
-            st.download_button(
-                "Descargar CSV Final",
-                df_to_csv_bytes(df4),
-                "04_CONVERSATION_THREADS_CLUSTERED.csv",
-                "text/csv",
-                use_container_width=True,
-            )
-
-        with col_s3:
-            can_upload = all([S3_BUCKET, AWS_ACCESS_KEY, AWS_SECRET_KEY])
-            if can_upload:
-                if st.button("Subir a S3", type="primary", use_container_width=True):
-                    with st.spinner("Subiendo a S3..."):
-                        try:
-                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                            s3_key = f"{S3_PREFIX.rstrip('/')}/{timestamp}_04_CONVERSATION_THREADS_CLUSTERED.csv"
-                            csv_bytes = df_to_csv_bytes(df4)
-                            s3_uri = upload_to_s3(csv_bytes, S3_BUCKET, s3_key, AWS_ACCESS_KEY, AWS_SECRET_KEY, AWS_REGION)
-                            st.success(f"Archivo subido exitosamente a **{s3_uri}**")
-
-                            json_key = f"{S3_PREFIX.rstrip('/')}/{timestamp}_THREADS_ESCALATION_ANALYSIS.json"
-                            analysis_data = {
-                                "generation_timestamp": datetime.now().isoformat(),
-                                "total_threads": len(st.session_state.thread_analyses),
-                                "total_mentions": len(df4),
-                                "escalation_summary": esc,
-                            }
-                            upload_to_s3(
-                                json.dumps(analysis_data, indent=2, ensure_ascii=False).encode('utf-8'),
-                                S3_BUCKET, json_key, AWS_ACCESS_KEY, AWS_SECRET_KEY, AWS_REGION
-                            )
-                            st.success(f"Analisis subido a **s3://{S3_BUCKET}/{json_key}**")
-                        except Exception as e:
-                            st.error(f"Error subiendo a S3: {e}")
-            else:
-                st.warning("Configura las credenciales de **AWS S3** en el archivo `.env` para subir el archivo.")
+        st.download_button(
+            "Descargar CSV Final",
+            df_to_csv_bytes(df4),
+            "04_CONVERSATION_THREADS_CLUSTERED.csv",
+            "text/csv",
+            use_container_width=True,
+        )
 
         st.markdown("---")
         st.markdown("""
@@ -701,6 +659,19 @@ elif current == 4:
                     st.session_state.thread_analyses = analyses
                     st.session_state.escalation_summary = esc_summary
                     st.session_state.crisis_conversations = crisis_convs
+
+                    can_upload = all([S3_BUCKET, AWS_ACCESS_KEY, AWS_SECRET_KEY])
+                    if can_upload:
+                        st.write("Subiendo archivo final a S3...")
+                        try:
+                            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                            s3_key = f"{S3_PREFIX.rstrip('/')}/{timestamp}_04_CONVERSATION_THREADS_CLUSTERED.csv"
+                            csv_bytes = df_to_csv_bytes(result_df)
+                            s3_uri = upload_to_s3(csv_bytes, S3_BUCKET, s3_key, AWS_ACCESS_KEY, AWS_SECRET_KEY, AWS_REGION)
+                            st.write(f"Archivo subido a {s3_uri}")
+                        except Exception as e:
+                            st.warning(f"Clustering completado pero hubo un error subiendo a S3: {e}")
+
                     status.update(label="Paso 4 completado", state="complete")
                     st.rerun()
                 except Exception as e:
