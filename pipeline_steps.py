@@ -12,6 +12,7 @@ import time
 import logging
 from datetime import datetime
 from collections import defaultdict
+import requests as http_requests
 from openai import OpenAI
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, confusion_matrix
 
@@ -56,10 +57,47 @@ NEGATIVE_RATIO_CRITICAL = 0.75
 
 
 # =============================================================================
+# SENTIMENT API CLIENT (for EC2-hosted model)
+# =============================================================================
+
+class SentimentAPIClient:
+
+    def __init__(self, api_url):
+        self.api_url = api_url.rstrip("/")
+
+    def health_check(self):
+        resp = http_requests.get(f"{self.api_url}/health", timeout=15)
+        resp.raise_for_status()
+        return resp.json()
+
+    def predict_batch(self, texts, max_retries=3):
+        for attempt in range(max_retries):
+            try:
+                resp = http_requests.post(
+                    f"{self.api_url}/predict/batch",
+                    json={"texts": texts},
+                    timeout=120,
+                )
+                resp.raise_for_status()
+                return resp.json()["results"]
+            except (http_requests.ConnectionError, http_requests.Timeout) as e:
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+                raise
+
+
+# =============================================================================
 # PASO 1: SENTIMIENTO
 # =============================================================================
 
-def load_sentiment_model(use_local, local_path, hf_token, model_id):
+def load_sentiment_model(use_local=False, local_path="", hf_token="", model_id="", api_url=None):
+    if api_url:
+        client = SentimentAPIClient(api_url)
+        status = client.health_check()
+        logger.info(f"Sentiment API connected: {status}")
+        return client
+
     from transformers import pipeline as hf_pipeline
 
     if use_local and local_path:
@@ -79,6 +117,12 @@ def load_sentiment_model(use_local, local_path, hf_token, model_id):
 
 
 def run_paso_1(df, classifier, progress_callback=None):
+    if isinstance(classifier, SentimentAPIClient):
+        return _run_paso_1_api(df, classifier, progress_callback)
+    return _run_paso_1_local(df, classifier, progress_callback)
+
+
+def _run_paso_1_local(df, classifier, progress_callback=None):
     from pysentimiento.preprocessing import preprocess_tweet
 
     df = df.copy()
@@ -107,6 +151,42 @@ def run_paso_1(df, classifier, progress_callback=None):
 
     df['sentiment_v2'] = sentiments
     df['sentiment_v2_score'] = scores
+    df['processed_timestamp'] = datetime.now().isoformat()
+
+    return df
+
+
+def _run_paso_1_api(df, client, progress_callback=None):
+    df = df.copy()
+    df['Comentario'] = df['Comentario'].fillna("").astype(str)
+
+    texts = df['Comentario'].tolist()
+    total = len(texts)
+    batch_size = 32
+
+    all_sentiments = []
+    all_scores = []
+
+    for start in range(0, total, batch_size):
+        end = min(start + batch_size, total)
+        batch = texts[start:end]
+
+        try:
+            results = client.predict_batch(batch)
+            for r in results:
+                all_sentiments.append(r["sentiment"])
+                all_scores.append(r["score"])
+        except Exception as e:
+            logger.warning(f"Error en batch {start}-{end}: {e}")
+            for _ in batch:
+                all_sentiments.append("error")
+                all_scores.append(0.0)
+
+        if progress_callback:
+            progress_callback(end, total)
+
+    df['sentiment_v2'] = all_sentiments
+    df['sentiment_v2_score'] = all_scores
     df['processed_timestamp'] = datetime.now().isoformat()
 
     return df

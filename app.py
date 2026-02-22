@@ -40,6 +40,7 @@ def get_secret(key, default=""):
 env_path = Path(__file__).parent / ".env"
 load_dotenv(env_path)
 
+SENTIMENT_API_URL = get_secret("SENTIMENT_API_URL", "")
 USE_LOCAL_MODEL = get_secret("USE_LOCAL_MODEL", "false").lower() == "true"
 LOCAL_MODEL_PATH = get_secret("LOCAL_MODEL_PATH", "")
 HF_TOKEN = get_secret("HF_TOKEN", "")
@@ -341,9 +342,9 @@ elif phase == "ready":
     st.markdown("### Verificacion de configuracion")
 
     issues = []
-    can_sentiment = (USE_LOCAL_MODEL and LOCAL_MODEL_PATH) or (not USE_LOCAL_MODEL and HF_TOKEN)
+    can_sentiment = SENTIMENT_API_URL or (USE_LOCAL_MODEL and LOCAL_MODEL_PATH) or (not USE_LOCAL_MODEL and HF_TOKEN)
     if not can_sentiment:
-        issues.append("**Paso 1 (Sentimiento):** Configura `HF_TOKEN` o `LOCAL_MODEL_PATH` en `.env`")
+        issues.append("**Paso 1 (Sentimiento):** Configura `SENTIMENT_API_URL` en `.env` (o `HF_TOKEN`/`LOCAL_MODEL_PATH` como fallback)")
     if not OPENAI_API_KEY:
         issues.append("**Paso 2 (Ground Truth):** Configura `OPENAI_API_KEY` en `.env`")
 
@@ -383,12 +384,16 @@ elif phase == "running":
         if st.session_state.df_paso_1 is None:
             with st.status("Paso 1: Analisis de Sentimiento con RoBERTuito V2.0", expanded=True) as status:
                 try:
-                    st.write("Cargando modelo RoBERTuito V2.0...")
+                    if SENTIMENT_API_URL:
+                        st.write("Conectando con API de sentimiento...")
+                    else:
+                        st.write("Cargando modelo RoBERTuito V2.0...")
                     if st.session_state.sentiment_model is None:
                         st.session_state.sentiment_model = load_sentiment_model(
-                            USE_LOCAL_MODEL, LOCAL_MODEL_PATH, HF_TOKEN, HF_MODEL_ID
+                            USE_LOCAL_MODEL, LOCAL_MODEL_PATH, HF_TOKEN, HF_MODEL_ID,
+                            api_url=SENTIMENT_API_URL if SENTIMENT_API_URL else None,
                         )
-                    st.write("Modelo cargado. Procesando menciones...")
+                    st.write("Modelo listo. Procesando menciones...")
 
                     progress_bar = st.progress(0)
                     progress_text = st.empty()
