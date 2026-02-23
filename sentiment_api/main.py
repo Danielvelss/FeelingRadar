@@ -15,8 +15,9 @@ from typing import List
 import logging
 import os
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from transformers import pipeline as hf_pipeline
 from pysentimiento.preprocessing import preprocess_tweet
@@ -30,7 +31,16 @@ LABEL_MAPPING = {
     "neutro": "neutral",
 }
 
+API_TOKEN = os.getenv("API_TOKEN", "")
+security = HTTPBearer()
 classifier = None
+
+
+def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    if not API_TOKEN:
+        return
+    if credentials.credentials != API_TOKEN:
+        raise HTTPException(403, "Invalid token")
 
 
 @asynccontextmanager
@@ -78,7 +88,7 @@ class BatchResponse(BaseModel):
 # ---- Endpoints ----
 
 @app.get("/health")
-def health():
+def health(auth: HTTPAuthorizationCredentials = Depends(verify_token)):
     return {
         "status": "ok" if classifier else "loading",
         "model": "robertuito-guatemala-v2.0",
@@ -86,7 +96,7 @@ def health():
 
 
 @app.post("/predict", response_model=PredictResponse)
-def predict(req: PredictRequest):
+def predict(req: PredictRequest, auth: HTTPAuthorizationCredentials = Depends(verify_token)):
     if not classifier:
         raise HTTPException(503, "Model not loaded")
     try:
@@ -101,7 +111,7 @@ def predict(req: PredictRequest):
 
 
 @app.post("/predict/batch", response_model=BatchResponse)
-def predict_batch(req: BatchRequest):
+def predict_batch(req: BatchRequest, auth: HTTPAuthorizationCredentials = Depends(verify_token)):
     if not classifier:
         raise HTTPException(503, "Model not loaded")
     results = []

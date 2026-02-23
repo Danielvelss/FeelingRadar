@@ -41,11 +41,13 @@ env_path = Path(__file__).parent / ".env"
 load_dotenv(env_path)
 
 SENTIMENT_API_URL = get_secret("SENTIMENT_API_URL", "")
+SENTIMENT_API_TOKEN = get_secret("SENTIMENT_API_TOKEN", "")
 USE_LOCAL_MODEL = get_secret("USE_LOCAL_MODEL", "false").lower() == "true"
 LOCAL_MODEL_PATH = get_secret("LOCAL_MODEL_PATH", "")
 HF_TOKEN = get_secret("HF_TOKEN", "")
 HF_MODEL_ID = get_secret("HF_MODEL_ID", "ejerez003/robertuito-guatemala-v2.0")
 OPENAI_API_KEY = get_secret("OPENAI_API_KEY", "")
+EC2_INSTANCE_ID = get_secret("EC2_INSTANCE_ID", "")
 S3_BUCKET = get_secret("AWS_S3_BUCKET", "")
 S3_PREFIX = get_secret("AWS_S3_PREFIX", "pipeline-output/")
 AWS_ACCESS_KEY = get_secret("AWS_ACCESS_KEY_ID", "")
@@ -191,6 +193,49 @@ def upload_to_s3(file_bytes, bucket, key, aws_access_key, aws_secret_key, aws_re
     return f"s3://{bucket}/{key}"
 
 
+def get_ec2_client():
+    import boto3
+    return boto3.client(
+        'ec2',
+        aws_access_key_id=AWS_ACCESS_KEY,
+        aws_secret_access_key=AWS_SECRET_KEY,
+        region_name=AWS_REGION,
+    )
+
+
+def get_ec2_status():
+    if not EC2_INSTANCE_ID or not AWS_ACCESS_KEY:
+        return "unknown"
+    try:
+        ec2 = get_ec2_client()
+        resp = ec2.describe_instances(InstanceIds=[EC2_INSTANCE_ID])
+        return resp['Reservations'][0]['Instances'][0]['State']['Name']
+    except Exception:
+        return "unknown"
+
+
+def start_ec2_instance():
+    ec2 = get_ec2_client()
+    ec2.start_instances(InstanceIds=[EC2_INSTANCE_ID])
+
+
+def stop_ec2_instance():
+    ec2 = get_ec2_client()
+    ec2.stop_instances(InstanceIds=[EC2_INSTANCE_ID])
+
+
+def check_api_health():
+    import requests as http_req
+    try:
+        headers = {}
+        if SENTIMENT_API_TOKEN:
+            headers["Authorization"] = f"Bearer {SENTIMENT_API_TOKEN}"
+        resp = http_req.get(f"{SENTIMENT_API_URL}/health", headers=headers, timeout=5)
+        return resp.status_code == 200
+    except Exception:
+        return False
+
+
 def get_phase():
     if st.session_state.df_paso_4 is not None:
         return "complete"
@@ -224,6 +269,48 @@ with st.sidebar:
         for key in list(st.session_state.keys()):
             del st.session_state[key]
         st.rerun()
+
+    if EC2_INSTANCE_ID and AWS_ACCESS_KEY and SENTIMENT_API_URL:
+        st.markdown("---")
+        st.markdown("### API Sentimiento")
+
+        ec2_state = get_ec2_status()
+        api_online = False
+
+        if ec2_state == "running":
+            api_online = check_api_health()
+            if api_online:
+                st.markdown("**Estado:** :green[En linea]")
+            else:
+                st.markdown("**Estado:** :orange[EC2 activa, API cargando...]")
+        elif ec2_state == "stopped":
+            st.markdown("**Estado:** :red[Apagada]")
+        elif ec2_state == "pending":
+            st.markdown("**Estado:** :orange[Encendiendo...]")
+        elif ec2_state == "stopping":
+            st.markdown("**Estado:** :orange[Apagando...]")
+        else:
+            st.markdown(f"**Estado:** :gray[{ec2_state}]")
+
+        col_on, col_off = st.columns(2)
+        with col_on:
+            start_disabled = ec2_state in ("running", "pending")
+            if st.button("Encender", use_container_width=True, disabled=start_disabled):
+                with st.spinner("Encendiendo EC2..."):
+                    start_ec2_instance()
+                    time.sleep(3)
+                st.rerun()
+        with col_off:
+            stop_disabled = ec2_state in ("stopped", "stopping")
+            if st.button("Apagar", use_container_width=True, disabled=stop_disabled):
+                with st.spinner("Apagando EC2..."):
+                    stop_ec2_instance()
+                    time.sleep(3)
+                st.rerun()
+
+        if ec2_state in ("pending", "stopping"):
+            time.sleep(2)
+            st.rerun()
 
 
 # =============================================================================
@@ -392,6 +479,7 @@ elif phase == "running":
                         st.session_state.sentiment_model = load_sentiment_model(
                             USE_LOCAL_MODEL, LOCAL_MODEL_PATH, HF_TOKEN, HF_MODEL_ID,
                             api_url=SENTIMENT_API_URL if SENTIMENT_API_URL else None,
+                            api_token=SENTIMENT_API_TOKEN if SENTIMENT_API_TOKEN else None,
                         )
                     st.write("Modelo listo. Procesando menciones...")
 

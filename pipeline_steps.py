@@ -61,12 +61,16 @@ NEGATIVE_RATIO_CRITICAL = 0.75
 # =============================================================================
 
 class SentimentAPIClient:
+    """Client for the RoBERTuito sentiment API hosted on EC2."""
 
-    def __init__(self, api_url):
+    def __init__(self, api_url, api_token=None):
         self.api_url = api_url.rstrip("/")
+        self.headers = {}
+        if api_token:
+            self.headers["Authorization"] = f"Bearer {api_token}"
 
     def health_check(self):
-        resp = http_requests.get(f"{self.api_url}/health", timeout=15)
+        resp = http_requests.get(f"{self.api_url}/health", headers=self.headers, timeout=15)
         resp.raise_for_status()
         return resp.json()
 
@@ -76,6 +80,7 @@ class SentimentAPIClient:
                 resp = http_requests.post(
                     f"{self.api_url}/predict/batch",
                     json={"texts": texts},
+                    headers=self.headers,
                     timeout=120,
                 )
                 resp.raise_for_status()
@@ -91,9 +96,9 @@ class SentimentAPIClient:
 # PASO 1: SENTIMIENTO
 # =============================================================================
 
-def load_sentiment_model(use_local=False, local_path="", hf_token="", model_id="", api_url=None):
+def load_sentiment_model(use_local=False, local_path="", hf_token="", model_id="", api_url=None, api_token=None):
     if api_url:
-        client = SentimentAPIClient(api_url)
+        client = SentimentAPIClient(api_url, api_token=api_token)
         status = client.health_check()
         logger.info(f"Sentiment API connected: {status}")
         return client
